@@ -1,83 +1,80 @@
 import os
+import requests
 import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-import yt_dlp
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 6728678197
-
 DOWNLOAD_PATH = "downloads"
 os.makedirs(DOWNLOAD_PATH, exist_ok=True)
 
 
-# 🎯 Progress bar for Telegram message edit
-async def progress_bar(current, total, message, start_time, action):
+# 🔍 Extract Terabox direct link
+def get_terabox_direct_link(url):
+    api = "https://teraboxvideodownloader.nepcoderdevs.workers.dev/?url=" + url
+    r = requests.get(api).json()
+    if "download_url" in r:
+        return r["download_url"]
+    return None
+
+
+# 📊 Progress bar
+async def progress(current, total, msg, text):
     percent = current * 100 / total
-    bar = "█" * int(percent / 5) + "░" * (20 - int(percent / 5))
+    bar = "█" * int(percent/5) + "░" * (20-int(percent/5))
     try:
-        await message.edit_text(f"{action}...\n[{bar}] {percent:.1f}%")
+        await msg.edit_text(f"{text}\n[{bar}] {percent:.1f}%")
     except:
         pass
 
 
-# 🎬 yt-dlp progress hook
-def ytdlp_hook(d):
-    if d['status'] == 'downloading':
-        print("Downloading:", d['_percent_str'])
-    elif d['status'] == 'finished':
-        print("Download finished")
-
-
-# 🔐 Start command
+# 🚀 Start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     await update.message.reply_text("Send Terabox video/file link 🔗")
 
 
-# 📥 Handle links
-async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# 📥 Handle link
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
     url = update.message.text
-    msg = await update.message.reply_text("Checking link...")
+    msg = await update.message.reply_text("Extracting Terabox link...")
 
-    ydl_opts = {
-        'outtmpl': f'{DOWNLOAD_PATH}/%(title)s.%(ext)s',
-        'progress_hooks': [ytdlp_hook],
-        'cookiefile': 'cookies.txt',   # optional if needed
-        'nocheckcertificate': True,
-        'quiet': True,
-    }
+    direct = get_terabox_direct_link(url)
+    if not direct:
+        await msg.edit_text("Failed to get file link ❌")
+        return
 
-    try:
-        await msg.edit_text("Downloading from Terabox ⏬")
+    filename = os.path.join(DOWNLOAD_PATH, direct.split("/")[-1])
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info)
+    await msg.edit_text("Downloading file ⏬")
 
-        await msg.edit_text("Uploading to Telegram ⏫")
+    with requests.get(direct, stream=True) as r:
+        total = int(r.headers.get('content-length', 0))
+        downloaded = 0
+        with open(filename, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    await progress(downloaded, total, msg, "Downloading")
 
-        with open(file_path, 'rb') as f:
-            await update.message.reply_document(
-                document=f,
-                filename=os.path.basename(file_path)
-            )
+    await msg.edit_text("Uploading to Telegram ⏫")
 
-        os.remove(file_path)
-        await msg.delete()
+    await update.message.reply_document(document=open(filename, 'rb'))
 
-    except Exception as e:
-        await msg.edit_text(f"Error: {e}")
+    os.remove(filename)
+    await msg.delete()
 
 
-# 🏁 Main
+# 🏁 Run
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 print("Bot Running...")
 app.run_polling()
