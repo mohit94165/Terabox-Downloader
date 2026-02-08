@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Jarvis Downloader</title>
+</head>
+<body style="text-align:center;font-family:sans-serif;background:#111;color:white">
+    <h2>Step 1: Download file from Terabox</h2>
+    <a id="dl" href="#">Open Terabox</a>
+
+    <h2>Step 2: Upload file here</h2>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" required>
+        <button type="submit">Upload to Telegram</button>
+    </form>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+document.getElementById("dl").href = params.get("link");
+</script>
+</body>
+</html>
