@@ -1,5 +1,4 @@
 import os
-import re
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
@@ -10,23 +9,18 @@ DOWNLOAD_PATH = "downloads"
 os.makedirs(DOWNLOAD_PATH, exist_ok=True)
 
 
-# 🔎 Extract direct download link from Terabox page
-def extract_direct_link(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://www.terabox.com/"
-    }
-    r = requests.get(url, headers=headers)
-    match = re.search(r'"downloadUrl":"(.*?)"', r.text)
-    if match:
-        return match.group(1).replace("\\/", "/")
+def get_direct_link(tera_url):
+    api = "https://terabox-dl-api.vercel.app/api?url=" + tera_url
+    r = requests.get(api).json()
+    if r.get("status") == "success":
+        return r["download_url"]
     return None
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    await update.message.reply_text("Send Terabox video/file link 🔗")
+    await update.message.reply_text("Send Terabox link 🔗")
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -36,9 +30,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     msg = await update.message.reply_text("Getting file link...")
 
-    direct = extract_direct_link(url)
+    direct = get_direct_link(url)
     if not direct:
-        await msg.edit_text("Failed to extract file ❌")
+        await msg.edit_text("Terabox server busy ❌ Try again later")
         return
 
     filename = os.path.join(DOWNLOAD_PATH, direct.split("/")[-1])
@@ -46,13 +40,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.edit_text("Downloading ⏬")
 
     with requests.get(direct, stream=True) as r:
-        total = int(r.headers.get('content-length', 0))
-        downloaded = 0
         with open(filename, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
+                f.write(chunk)
 
     await msg.edit_text("Uploading ⏫")
 
